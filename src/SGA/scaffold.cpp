@@ -71,7 +71,7 @@ enum { OPT_HELP = 1, OPT_VERSION, OPT_PE, OPT_MATEPAIR, OPT_CUTCONFLICT, OPT_STR
 static const struct option longopts[] = {
     { "verbose",            no_argument,       NULL, 'v' },
     { "min-length",         required_argument, NULL, 'm' },
-    { "asgq-file",          required_argument, NULL, 'g' }, 
+    { "asgq-file",          required_argument, NULL, 'g' },
     { "astatistic-file",    required_argument, NULL, 'a' },
     { "unique-astat",       required_argument, NULL, 'u' },
     { "repeat-astat",       required_argument, NULL, 'r' },
@@ -98,20 +98,20 @@ int scaffoldMain(int argc, char** argv)
     int maxOverlap = 100;
 
     ScaffoldGraph graph;
-    
+
     graph.loadVertices(opt::contigsFile, opt::minContigLength);
 
     for(size_t i = 0; i < opt::peDistanceEstFiles.size(); ++i)
         graph.loadDistanceEstimateEdges(opt::peDistanceEstFiles[i], false, opt::verbose);
-    
+
     for(size_t i = 0; i < opt::mateDistanceEstFiles.size(); ++i)
         graph.loadDistanceEstimateEdges(opt::mateDistanceEstFiles[i], true, opt::verbose);
-
+    graph.writeDot("01_sga_loadVertices.dot");
     // Load the a-stat data and mark vertices as unique and repeat
     if(!opt::astatFile.empty())
     {
         graph.loadAStatistic(opt::astatFile);
-        ScaffoldAStatisticVisitor astatVisitor(opt::uniqueAstatThreshold, 
+        ScaffoldAStatisticVisitor astatVisitor(opt::uniqueAstatThreshold,
                                                opt::minEstCopyNumber);
         graph.visit(astatVisitor);
     }
@@ -121,13 +121,14 @@ int scaffoldMain(int argc, char** argv)
         std::cout << "It is highly suggested that an a-stat file is provided " <<
                      "to give copy number estimates of the input sequences\n=====\n\n";
     }
-
+    graph.writeDot("02_sga_astatVisitor.dot");
     std::cout << "[sga-scaffold] Removing non-unique vertices from scaffold graph\n";
     graph.deleteVertices(SVC_REPEAT);
     if(opt::removeConflicting)
     {
         ScaffoldConflictingVisitor conflictVisitor;
         graph.visit(conflictVisitor);
+        graph.writeDot("03_sga_removeConflicting.dot");
         graph.deleteVertices(SVC_REPEAT);
     }
 
@@ -136,48 +137,55 @@ int scaffoldMain(int argc, char** argv)
         std::cout << "Performing strict resolutions\n";
         ScaffoldTransitiveReductionVisitor trVisit;
         graph.visit(trVisit);
-    
+
         // Check for cycles in the graph
         ScaffoldAlgorithms::destroyStrictCycles(&graph, "scaffold.cycles.out");
 
         ScaffoldMultiEdgeRemoveVisitor meVisit;
         graph.visit(meVisit);
+        graph.writeDot("04_sga_performingStrict.dot");
     }
     else
     {
         // Remove polymorphic nodes from the graph
         ScaffoldPolymorphismVisitor polyVisitor(maxOverlap);
         while(graph.visit(polyVisitor)) {}
-
+        graph.writeDot("04_sga_PolymorphismVisitor.dot");
         // If requested, collapse structural variation in the graph
         if(opt::maxSVSize > 0)
         {
             ScaffoldSVVisitor svVisit(opt::maxSVSize);
             graph.visit(svVisit);
+            graph.writeDot("04a_sga_collapseStructuralVariation.dot");
         }
 
         // Break any links in the graph that are inconsistent
         ScaffoldLinkValidator linkValidator(100, 0.05f, opt::verbose);
         graph.visit(linkValidator);
+        graph.writeDot("05_sga_linkValidator.dot");
         graph.deleteVertices(SVC_REPEAT);
-        
+
         // Check for cycles in the graph using the old cycle finding algorithm
         ScaffoldAlgorithms::removeInternalCycles(&graph);
+        graph.writeDot("06_sga_removeInternalCycles.dot");
     }
 
 
     // Linearize the scaffolds
     ScaffoldAlgorithms::makeScaffolds(&graph);
+    graph.writeDot("07_sga_makeScaffolds.dot");
 
     // TODO Place floating contigs and repeats into the gaps.
 
     // Break any remaining multi-edge contigs scaffolds
     ScaffoldMultiEdgeRemoveVisitor cutVisitor;
     graph.visit(cutVisitor);
+    graph.writeDot("08_sga_MultiEdgeRemoveVisitor.dot");
 
     // Write out the scaffolds
     ScaffoldWriterVisitor writer(opt::outFile);
     graph.visit(writer);
+    graph.writeDot("09_sga_WriterVisitor.dot");
 
     return 0;
 }
@@ -186,10 +194,10 @@ int scaffoldMain(int argc, char** argv)
 void parseScaffoldOptions(int argc, char** argv)
 {
     bool die = false;
-    for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;) 
+    for (char c; (c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1;)
     {
         std::istringstream arg(optarg != NULL ? optarg : "");
-        switch (c) 
+        switch (c)
         {
             case '?': die = true; break;
             case 'v': opt::verbose++; break;
@@ -202,11 +210,11 @@ void parseScaffoldOptions(int argc, char** argv)
             case 'c': arg >> opt::minEstCopyNumber; break;
             case OPT_CUTCONFLICT: opt::removeConflicting = true; break;
             case OPT_STRICT: opt::strict = true; break;
-            case OPT_PE: 
-                opt::peDistanceEstFiles.push_back(arg.str()); 
+            case OPT_PE:
+                opt::peDistanceEstFiles.push_back(arg.str());
                 break;
-            case OPT_MATEPAIR: 
-                opt::mateDistanceEstFiles.push_back(arg.str()); 
+            case OPT_MATEPAIR:
+                opt::mateDistanceEstFiles.push_back(arg.str());
                 break;
             case OPT_HELP:
                 std::cout << SCAFFOLD_USAGE_MESSAGE;
@@ -217,24 +225,24 @@ void parseScaffoldOptions(int argc, char** argv)
         }
     }
 
-    if (argc - optind < 1) 
+    if (argc - optind < 1)
     {
         std::cerr << SUBPROGRAM ": missing arguments\n";
         die = true;
-    } 
-    else if (argc - optind > 2) 
+    }
+    else if (argc - optind > 2)
     {
         std::cerr << SUBPROGRAM ": too many arguments\n";
         die = true;
     }
 
-    if (die) 
+    if (die)
     {
         std::cout << "\n" << SCAFFOLD_USAGE_MESSAGE;
         exit(EXIT_FAILURE);
     }
 
-    // 
+    //
     opt::contigsFile = argv[optind++];
 
     if(opt::contigsFile.empty())
@@ -262,6 +270,6 @@ void parseScaffoldOptions(int argc, char** argv)
         opt::outFile = opt::contigsFile + ".scaf";
     }
 
-    
+
 }
 
